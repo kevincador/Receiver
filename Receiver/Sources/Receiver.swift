@@ -1,3 +1,11 @@
+/// Enum that represents the Receiver's strategies
+public enum Strategy {
+    case cold
+    case warm(upTo: Int)
+    case hot
+}
+
+
 /// The read only implementation of the Observer pattern.
 /// Consumers use the `listen` method and provide a suitable handler that will
 /// be called every time a new value (`Wave`) is forward.
@@ -67,7 +75,7 @@ public class Receiver<Wave> {
     public typealias Handler = (Wave) -> Void
 
     private let values = Atomic<[Wave]>([])
-    private let strategy: Strategy
+    public let strategy: Strategy
     private let handlers = Atomic<[UInt64:Handler]>([:])
     private var nextKey: UInt64 = 0
 
@@ -144,15 +152,6 @@ public class Receiver<Wave> {
             let transmitter = Receiver<Wave>.Transmitter(receiver)
 
             return (transmitter, receiver)
-    }
-}
-
-extension Receiver {
-    /// Enum that represents the Receiver's strategies
-    public enum Strategy {
-        case cold
-        case warm(upTo: Int)
-        case hot
     }
 }
 

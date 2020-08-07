@@ -16,7 +16,7 @@ extension Receiver {
     ///
     /// - returns: A `receiver` with the applied transformation.
     public func map<U>(_ transform: @escaping (Wave) -> U) -> Receiver<U> {
-        let (transmitter, receiver) = Receiver<U>.make()
+        let (transmitter, receiver) = Receiver<U>.make(with: strategy)
         
         self.listen {
             transmitter.broadcast(transform($0))
@@ -45,7 +45,7 @@ extension Receiver {
     ///
     /// - returns: A `receiver` that discards values based on a predicate.
     public func filter(_ isIncluded: @escaping (Wave) -> Bool) -> Receiver<Wave> {
-        let (transmitter, receiver) = Receiver<Wave>.make()
+        let (transmitter, receiver) = Receiver<Wave>.make(with: strategy)
 
         self.listen {
             guard isIncluded($0) else { return }
@@ -71,7 +71,7 @@ extension Receiver {
     ///
     /// - returns: A `receiver` that pairs the previous value with the current.
     public func withPrevious() -> Receiver<(Wave?, Wave)> {
-        let (transmitter, receiver) = Receiver<(Wave?, Wave)>.make()
+        let (transmitter, receiver) = Receiver<(Wave?, Wave)>.make(with: strategy)
         let values = Atomic<[Wave]>([])
 
         self.listen { newValue in
@@ -108,7 +108,7 @@ extension Receiver {
     public func skip(count: Int) -> Receiver<Wave> {
         guard count > 0 else { return self }
 
-        let (transmitter, receiver) = Receiver<Wave>.make()
+        let (transmitter, receiver) = Receiver<Wave>.make(with: strategy)
         let counter = Atomic<Int>(0)
 
         self.listen { newValue in
@@ -147,7 +147,7 @@ extension Receiver {
     ///
     /// - returns: A `receiver` that forwards values up to count.
     public func take(count: Int) -> Receiver<Wave> {
-        let (transmitter, receiver) = Receiver<Wave>.make()
+        let (transmitter, receiver) = Receiver<Wave>.make(with: strategy)
         let counter = Atomic<Int>(count)
 
         self.listen { newValue in
@@ -187,7 +187,7 @@ extension Receiver where Wave: Equatable {
     ///
     /// - returns: A `receiver` that skips repeated consecutive values.
     public func skipRepeats() -> Receiver<Wave> {
-        let (transmitter, receiver) = Receiver<Wave>.make()
+        let (transmitter, receiver) = Receiver<Wave>.make(with: strategy)
         let values = Atomic<[Wave]>([])
 
         self.listen { newValue in
@@ -237,7 +237,7 @@ extension Receiver where Wave: Hashable {
     ///
     /// - returns: A `receiver` that only forwards unique events.
     public func uniqueValues() -> Receiver<Wave> {
-        let (transmitter, receiver) = Receiver<Wave>.make()
+        let (transmitter, receiver) = Receiver<Wave>.make(with: strategy)
         let values = Atomic<Set<Wave>>([])
 
         self.listen { newValue in
@@ -274,7 +274,7 @@ extension Receiver where Wave: OptionalProtocol {
     ///
     /// - returns: A `receiver` that skips nil values.
     public func skipNil() -> Receiver<Wave.Wrapped> {
-        let (transmitter, receiver) = Receiver<Wave.Wrapped>.make()
+        let (transmitter, receiver) = Receiver<Wave.Wrapped>.make(with: strategy)
 
         self.listen { newValue in
             switch newValue.optional {
