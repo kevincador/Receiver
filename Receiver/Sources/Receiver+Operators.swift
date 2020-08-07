@@ -161,6 +161,34 @@ extension Receiver {
 
         return receiver
     }
+    
+    /// Only forwards hot values, skipping all the previous values.
+    /// ```
+    ///     let (transmitter, receiver) = Receiver<Int>.make(with: .cold)
+    ///     let hotOnly = receiver.hotOnly()
+    ///
+    ///     transmitter.broadcast(1)
+    ///     transmitter.broadcast(2)
+    ///     hotOnly.listen { value in
+    ///          /// `value` == 3
+    ///          /// `value` == 4
+    ///     }
+    ///     transmitter.broadcast(3)
+    ///     transmitter.broadcast(4)
+    /// ```
+    /// - parameters:
+    ///   - count: The number of values it will forward.
+    ///
+    /// - returns: A `receiver` that forwards values up to count.
+    public func hotOnly() -> Receiver<Wave> {
+        let (transmitter, receiver) = Receiver<Wave>.make(with: .hot)
+
+        self.listen { newValue in
+            transmitter.broadcast(newValue)
+        }
+
+        return receiver
+    }
 }
 
 extension Receiver where Wave: Equatable {

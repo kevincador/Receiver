@@ -179,4 +179,22 @@ class ReceiverTests_Operators: XCTestCase {
 
         XCTAssertTrue(called == 3)
     }
+    
+    func test_hotOnly() {
+        let (transmitter, receiver) = Receiver<Int>.make(with: .hot)
+        let newReceiver = receiver.hotOnly()
+        var called = 0
+
+        transmitter.broadcast(1)
+        transmitter.broadcast(2)
+        transmitter.broadcast(1)
+        newReceiver.listen { wave in
+            called = called + 1
+        }
+        transmitter.broadcast(1)
+        transmitter.broadcast(2)
+        transmitter.broadcast(2)
+
+        XCTAssertTrue(called == 3)
+    }
 }
