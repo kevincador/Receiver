@@ -33,6 +33,25 @@ class ReceiverTests: XCTestCase {
         transmitter.broadcast(1)
         XCTAssertTrue(called == 10)
     }
+    
+    func test_MultipleColdListeners() {
+        let (transmitter, receiver) = Receiver<Int>.make(with: .cold)
+        var called = 0
+
+        receiver.skipRepeats().listen { wave in
+            called = called + 1
+        }
+
+        transmitter.broadcast(1)
+        XCTAssertTrue(called == 1)
+
+        receiver.skipRepeats().listen { wave in
+            called = called + 1
+        }
+        
+        transmitter.broadcast(1)
+        XCTAssertTrue(called == 2)
+    }
 
     func test_Multithread() {
         let expect = expectation(description: "fun")
