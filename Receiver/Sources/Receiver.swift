@@ -75,7 +75,7 @@ public class Receiver<Wave> {
         self.strategy = strategy
     }
 
-    private func broadcast(elements: Int) {
+    private func broadcast(elements: Int, handler: Handler? = nil) {
         values.apply { _values in
 
             let lowerLimit = max(_values.count - elements, 0)
@@ -84,8 +84,12 @@ public class Receiver<Wave> {
             for index in indexs {
                 let value = _values[index]
                 handlers.apply { _handlers in
-                    for _handler in _handlers.values {
-                        _handler(value)
+                    if let handler = handler {
+                        handler(value)
+                    } else {
+                        for _handler in _handlers.values {
+                            _handler(value)
+                        }
                     }
                 }
             }
@@ -115,11 +119,11 @@ public class Receiver<Wave> {
 
         switch strategy {
         case .cold:
-            broadcast(elements: Int.max)
+            broadcast(elements: Int.max, handler: handle)
         case let .warm(upTo: limit):
-            broadcast(elements: limit)
+            broadcast(elements: limit, handler: handle)
         case .hot:
-            broadcast(elements: 0)
+            broadcast(elements: 0, handler: handle)
         }
 
         return Disposable {[weak self] in
