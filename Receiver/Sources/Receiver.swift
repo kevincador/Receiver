@@ -1,3 +1,5 @@
+import Foundation
+
 /// Enum that represents the Receiver's strategies
 public enum Strategy {
     case cold
@@ -78,37 +80,94 @@ public class Receiver<Wave> {
     public let strategy: Strategy
     private let handlers = Atomic<[UInt64:Handler]>([:])
     private var nextKey: UInt64 = 0
+    private let deliveryQueue = DispatchQueue(label: "receiver.delivery.queue")
+    private let deliveryQueueKey = DispatchSpecificKey<Void>()
 
     private init(strategy: Strategy) {
         self.strategy = strategy
+        deliveryQueue.setSpecific(key: deliveryQueueKey, value: ())
     }
 
-    private func broadcast(elements: Int, handler: Handler? = nil) {
+    /// Returns a snapshot of the current handlers so user code is never
+    /// executed while the lock is held.
+    private func currentHandlers() -> [Handler] {
+        var snapshot: [Handler] = []
+        handlers.apply { _handlers in
+            snapshot = Array(_handlers.values)
+        }
+        return snapshot
+    }
+
+    /// Executes the provided work serially to ensure handler invocation is
+    /// thread-safe without reentrancy deadlocks.
+    private func deliver(_ work: () -> Void) {
+        if DispatchQueue.getSpecific(key: deliveryQueueKey) != nil {
+            work()
+        } else {
+            deliveryQueue.sync(execute: work)
+        }
+    }
+
+    /// Replays the last `elements` buffered values either to a single handler
+    /// or to all current handlers.
+    private func replay(elements: Int, handler: Handler? = nil) {
+        var replayValues: [Wave] = []
         values.apply { _values in
-
             let lowerLimit = max(_values.count - elements, 0)
-            let indexs = (lowerLimit ..< _values.count)
+            if lowerLimit < _values.count {
+                replayValues = Array(_values[lowerLimit ..< _values.count])
+            }
+        }
 
-            for index in indexs {
-                let value = _values[index]
-                handlers.apply { _handlers in
-                    if let handler = handler {
-                        handler(value)
-                    } else {
-                        for _handler in _handlers.values {
-                            _handler(value)
-                        }
-                    }
+        guard replayValues.isEmpty == false else { return }
+
+        if let handler = handler {
+            deliver {
+                replayValues.forEach(handler)
+            }
+        } else {
+            let handlers = currentHandlers()
+            deliver {
+                replayValues.forEach { value in
+                    handlers.forEach { $0(value) }
                 }
             }
         }
     }
 
-    fileprivate func append(value: Wave) {
-        values.apply { currentValues in
-            currentValues.append(value)
+    /// Sends the latest value to all registered handlers.
+    private func fanOut(_ value: Wave) {
+        let handlers = currentHandlers()
+        deliver {
+            handlers.forEach { $0(value) }
         }
-        broadcast(elements: 1)
+    }
+
+    fileprivate func append(value: Wave) {
+        switch strategy {
+        case .hot:
+            // No buffering needed; just deliver to active listeners.
+            fanOut(value)
+
+        case let .warm(upTo: limit):
+            values.apply { currentValues in
+                currentValues.append(value)
+                // Keep only the latest `limit` items; limit may be Int.max.
+                if limit < currentValues.count {
+                    let overflow = currentValues.count - limit
+                    if overflow > 0 {
+                        currentValues.removeFirst(overflow)
+                    }
+                }
+            }
+            fanOut(value)
+
+        case .cold:
+            values.apply { currentValues in
+                currentValues.append(value)
+            }
+            fanOut(value)
+        }
     }
 
     /// Adds a listener to the receiver.
@@ -127,11 +186,11 @@ public class Receiver<Wave> {
 
         switch strategy {
         case .cold:
-            broadcast(elements: Int.max, handler: handle)
+            replay(elements: Int.max, handler: handle)
         case let .warm(upTo: limit):
-            broadcast(elements: limit, handler: handle)
+            replay(elements: limit, handler: handle)
         case .hot:
-            broadcast(elements: 0, handler: handle)
+            replay(elements: 0, handler: handle)
         }
 
         return Disposable {[weak self] in

@@ -179,22 +179,88 @@ class ReceiverTests_Operators: XCTestCase {
 
         XCTAssertTrue(called == 3)
     }
-    
-    func test_hotOnly() {
-        let (transmitter, receiver) = Receiver<Int>.make(with: .hot)
-        let newReceiver = receiver.hotOnly()
+
+    func test_uniqueValues_coldReplaysOnlyUniqueValues() {
+        let (transmitter, receiver) = Receiver<Int>.make(with: .cold)
+        [1, 2, 1, 3, 3].forEach(transmitter.broadcast)
+
+        let uniqueReceiver = receiver.uniqueValues()
+        var received: [Int] = []
+
+        uniqueReceiver.listen { received.append($0) }
+        XCTAssertEqual(received, [1, 2, 3])
+
+        transmitter.broadcast(4)
+        XCTAssertEqual(received, [1, 2, 3, 4])
+    }
+
+    func test_hotOnly_skipsBufferedValuesFromColdSource() {
+        let (transmitter, receiver) = Receiver<Int>.make(with: .cold)
+        let hotOnly = receiver.hotOnly()
+
+        transmitter.broadcast(1)
+        transmitter.broadcast(2)
+
+        var received: [Int] = []
+        hotOnly.listen { received.append($0) }
+
+        transmitter.broadcast(3)
+        transmitter.broadcast(4)
+
+        XCTAssertEqual(received, [3, 4])
+    }
+
+    func test_skip_negativeCount_behavesAsIdentity() {
+        let (transmitter, receiver) = Receiver<Int>.make()
+        let newReceiver = receiver.skip(count: -3)
         var called = 0
 
-        transmitter.broadcast(1)
-        transmitter.broadcast(2)
-        transmitter.broadcast(1)
-        newReceiver.listen { wave in
+        newReceiver.listen { _ in
             called = called + 1
         }
+
         transmitter.broadcast(1)
-        transmitter.broadcast(2)
+        XCTAssertEqual(called, 1)
+    }
+
+    func test_take_negativeCount_forwardsNoValues() {
+        let (transmitter, receiver) = Receiver<Int>.make()
+        let newReceiver = receiver.take(count: -1)
+        var called = 0
+
+        newReceiver.listen { _ in
+            called = called + 1
+        }
+
+        transmitter.broadcast(1)
+        XCTAssertEqual(called, 0)
+    }
+
+    func test_skipNil_withColdSourceReplaysNonNilValues() {
+        let (transmitter, receiver) = Receiver<Int?>.make(with: .cold)
+        transmitter.broadcast(1)
+        transmitter.broadcast(nil)
         transmitter.broadcast(2)
 
-        XCTAssertTrue(called == 3)
+        let nonNilReceiver = receiver.skipNil()
+        var received: [Int] = []
+
+        nonNilReceiver.listen { received.append($0) }
+        XCTAssertEqual(received, [1, 2])
+    }
+
+    func test_withPrevious_multipleValues() {
+        let (transmitter, receiver) = Receiver<Int>.make()
+        let previousReceiver = receiver.withPrevious()
+        var received: [(Int?, Int)] = []
+
+        previousReceiver.listen { received.append($0) }
+
+        transmitter.broadcast(10)
+        transmitter.broadcast(20)
+        transmitter.broadcast(30)
+
+        XCTAssertEqual(received.map { $0.0 }, [nil, 10, 20])
+        XCTAssertEqual(received.map { $0.1 }, [10, 20, 30])
     }
 }

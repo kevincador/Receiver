@@ -54,9 +54,10 @@ class ReceiverTests: XCTestCase {
     }
 
     func test_Multithread() {
-        let expect = expectation(description: "fun")
         let (transmitter, receiver) = Receiver<Int>.make()
         var called = 0
+        let expect = expectation(description: "fun")
+        let group = DispatchGroup()
 
         let oneQueue = DispatchQueue(label: "oneQueue")
         let twoQueues = DispatchQueue(label: "twoQueues")
@@ -72,26 +73,93 @@ class ReceiverTests: XCTestCase {
         }
 
         for _ in 1...5 {
+            group.enter()
             oneQueue.async {
                 transmitter.broadcast(1)
+                group.leave()
             }
+            group.enter()
             twoQueues.async {
                 transmitter.broadcast(2)
+                group.leave()
             }
+            group.enter()
             threeQueues.async {
                 transmitter.broadcast(3)
+                group.leave()
             }
+            group.enter()
             fourQueues.async {
                 transmitter.broadcast(4)
+                group.leave()
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) {
+        group.notify(queue: .main) {
             XCTAssert(called == 40)
             expect.fulfill()
         }
 
         waitForExpectations(timeout: 1, handler: nil)
+    }
+
+    func test_NestedListener() {
+        let (transmitter, receiver) = Receiver<Int>.make()
+        var outerCalled = 0
+        var innerCalled = 0
+
+        receiver.listen { _ in
+            outerCalled = outerCalled + 1
+            receiver.listen { _ in
+                innerCalled = innerCalled + 1
+            }
+        }
+
+        // First broadcast registers inner listener but only outer fires.
+        transmitter.broadcast(1)
+        XCTAssertTrue(outerCalled == 1)
+        XCTAssertTrue(innerCalled == 0)
+
+        // Subsequent broadcasts should trigger both.
+        transmitter.broadcast(2)
+        XCTAssertTrue(outerCalled == 2)
+        XCTAssertTrue(innerCalled == 1)
+        
+        // Subsequent broadcasts should trigger both.
+        transmitter.broadcast(3)
+        XCTAssertTrue(outerCalled == 3)
+        XCTAssertTrue(innerCalled == 3)
+    }
+
+    func test_NestedListener_DifferentReceivers() {
+        let (outerTransmitter, outerReceiver) = Receiver<Int>.make()
+        let (innerTransmitter, innerReceiver) = Receiver<Int>.make()
+        var outerCalled = 0
+        var innerCalled = 0
+
+        outerReceiver.listen { _ in
+            outerCalled = outerCalled + 1
+            innerReceiver.listen { _ in
+                innerCalled = innerCalled + 1
+            }
+        }
+
+        // First outer broadcast registers an inner listener but does not fire it.
+        outerTransmitter.broadcast(1)
+        XCTAssertTrue(outerCalled == 1)
+        XCTAssertTrue(innerCalled == 0)
+
+        // Inner transmitter now fires the registered inner listener.
+        innerTransmitter.broadcast(10)
+        XCTAssertTrue(innerCalled == 1)
+
+        // Another outer broadcast registers a second inner listener.
+        outerTransmitter.broadcast(2)
+        XCTAssertTrue(outerCalled == 2)
+
+        // Inner broadcast should now notify both inner listeners.
+        innerTransmitter.broadcast(20)
+        XCTAssertTrue(innerCalled == 3)
     }
 
     func test_Warm_0() {
@@ -144,21 +212,51 @@ class ReceiverTests: XCTestCase {
         XCTAssertTrue(called == 5)
     }
 
+    func test_Warm_dropsOverflowBuffer() {
+        let (transmitter, receiver) = Receiver<Int>.make(with: .warm(upTo: 2))
+        [1, 2, 3, 4].forEach(transmitter.broadcast)
+
+        var received: [Int] = []
+        receiver.listen { received.append($0) }
+        XCTAssertEqual(received, [3, 4])
+
+        transmitter.broadcast(5)
+        XCTAssertEqual(received, [3, 4, 5])
+
+        var replay: [Int] = []
+        receiver.listen { replay.append($0) }
+        XCTAssertEqual(replay, [4, 5])
+    }
+
+    func test_Cold_multipleListenersReplayAllValues() {
+        let (transmitter, receiver) = Receiver<Int>.make(with: .cold)
+        [1, 2, 3].forEach(transmitter.broadcast)
+
+        var first: [Int] = []
+        receiver.listen { first.append($0) }
+        XCTAssertEqual(first, [1, 2, 3])
+
+        var second: [Int] = []
+        receiver.listen { second.append($0) }
+        XCTAssertEqual(second, [1, 2, 3])
+
+        transmitter.broadcast(4)
+        XCTAssertEqual(first, [1, 2, 3, 4])
+        XCTAssertEqual(second, [1, 2, 3, 4])
+    }
+
     func test_NoValueIsSent_IfBroadCastBeforeListenning_forHot() {
-        let expect = expectation(description: "fun")
         let (transmitter, receiver) = Receiver<Int>.make()
 
         transmitter.broadcast(1)
 
-        receiver.listen { wave in
-            fatalError()
+        let inverted = expectation(description: "no value received")
+        inverted.isInverted = true
+        receiver.listen { _ in
+            inverted.fulfill()
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) {
-            expect.fulfill()
-        }
-
-        waitForExpectations(timeout: 1, handler: nil)
+        waitForExpectations(timeout: 0.1, handler: nil)
     }
     
     func test_weakness() {
@@ -219,9 +317,12 @@ class ReceiverTests: XCTestCase {
             called = called + 1
         }.disposed(by: disposeBag!)
         
-        disposeBag = nil
         transmitter.broadcast(1)
-        XCTAssertTrue(called == 0)
+        XCTAssertTrue(called == 1)
+        
+        disposeBag = nil
+        transmitter.broadcast(2)
+        XCTAssertTrue(called == 1)
     }
     
     func test_disposeBag_multipleListeners() {
@@ -246,8 +347,11 @@ class ReceiverTests: XCTestCase {
             called = called + 1
             }.disposed(by: disposeBag!)
         
-        disposeBag = nil // this forces the DisposeBag to be deinit()
         transmitter.broadcast(1)
-        XCTAssertTrue(called == 0)
+        XCTAssertTrue(called == 4)
+        
+        disposeBag = nil // this forces the DisposeBag to be deinit()
+        transmitter.broadcast(2)
+        XCTAssertTrue(called == 4)
     }
 }
