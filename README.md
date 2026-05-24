@@ -36,6 +36,25 @@ Nevertheless, a precious pattern can still be used, even without such an awesome
 
 ## Adding as a Dependency 🚀
 
+#### Swift Package Manager
+
+If you use Swift Package Manager, add Receiver with your repository URL:
+
+```swift
+.package(url: "https://github.com/kevincador/Receiver.git", branch: "master")
+```
+
+Then add `Receiver` to your target dependencies:
+
+```swift
+.target(
+    name: "YourTarget",
+    dependencies: ["Receiver"]
+)
+```
+
+For a private repository, use the same URL you use to clone the repo and make sure your development environment has access to it. If you want versioned dependencies, create a new SemVer tag after committing `Package.swift` and use that version with `from:`.
+
 #### Carthage
 
 If you use Carthage to manage your dependencies, simply add Receiver to your Cartfile:
